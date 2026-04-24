@@ -1,19 +1,19 @@
 import os
 import time
 import requests
-
+from dotenv import load_dotenv
 from processDocuments import DocumentProcessor
 from processDocuments import SupabaseChunkLoader
 from RAG_DeepEval import generate_goldens_with_synthesizer, OpenAIModel
 from RAG_DeepEval import SupabaseChunkReader, SUPABASE_KEY, SUPABASE_TABLE, SUPABASE_URL
 from RAG_DeepEval import TARGET_QA_PAIRS, OUTPUT_DIR
 from RAG_DeepEval import login_confident_ai, push_goldens_to_cloud, pull_dataset_from_cloud 
-from RAG_DeepEval import save_goldens_to_json, DATASET_ALIAS, EvaluationDataset, build_test_cases, run_evaluation, create_pdf_report
-from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
+from RAG_DeepEval import save_goldens_to_json, DATASET_ALIAS, build_test_cases, run_evaluation, create_pdf_report
+from deepeval.dataset import EvaluationDataset
+
+
+load_dotenv()
+webhook = os.getenv('N8N_WEBHOOK')
 
 def upload_documents():
     print("\n Enter document paths (comma-separated):")
@@ -118,7 +118,7 @@ def run_evaluation_only():
             try:
                 time.sleep(2)
                 response = requests.post(
-                    "https://phiwamandlakashaka.app.n8n.cloud/webhook/59b596cb-ce53-4f07-ada3-72d45ef70462",
+                    webhook,
                     json={"question": question},
                     timeout=60
                 )
