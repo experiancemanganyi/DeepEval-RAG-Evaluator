@@ -5,8 +5,10 @@ import pandas as pd
 
 from docx import Document
 from pathlib import Path
-from RAG_DeepEval import create_client
+from dotenv import load_dotenv
+from supabase import create_client
 
+load_dotenv()
 class DocumentProcessor:
     def __init__(self, chunk_size=1000, chunk_overlap=200):
         self.chunk_size = chunk_size
