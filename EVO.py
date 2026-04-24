@@ -5,8 +5,22 @@ import time
 import requests
 import threading
 from datetime import datetime
+from supabase import create_client
+import openai as _oa
+import deepeval
+from supabase import create_client as _sc
+from deepeval.synthesizer import Synthesizer
+from deepeval.test_case import LLMTestCase
+from deepeval.dataset import EvaluationDataset
+from deepeval.metrics import (
+    AnswerRelevancyMetric, FaithfulnessMetric, HallucinationMetric,
+    ContextualRelevancyMetric, BiasMetric, ToxicityMetric,
+    ContextualPrecisionMetric, ContextualRecallMetric
+)
+from deepeval.evaluate import evaluate as de_evaluate
+from deepeval.models import DeepEvalBaseLLM
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# Page config 
 st.set_page_config(
     page_title="E.V.O · LLM Evaluator",
     page_icon="⚡",
@@ -14,9 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
-
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# CSS 
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Rajdhani:wght@300;400;500;600;700&family=Inter:wght@300;400;500&display=swap');
@@ -453,7 +465,7 @@ footer { visibility: hidden; }
 """, unsafe_allow_html=True)
 
 
-# ── Session state init ────────────────────────────────────────────────────────
+# Session state 
 def _init():
     defaults = dict(
         supabase_status="idle",
@@ -479,27 +491,23 @@ def _init():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-
 _init()
-
 
 def add_log(msg: str, kind="info"):
     ts = datetime.now().strftime("%H:%M:%S")
     st.session_state.logs.append((ts, kind, msg))
 
-
 def status_dot(status: str) -> str:
     cls = {"ok": "status-ok", "err": "status-err", "idle": "status-idle", "testing": "status-testing"}.get(status, "status-idle")
     return f'<span class="status-dot {cls}"></span>'
 
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# Sidebar 
 with st.sidebar:
     st.markdown('<div class="evo-logo">E·V·O</div>', unsafe_allow_html=True)
-    st.markdown('<div class="evo-subtitle">RAG EVALUATION ORCHESTRATOR</div>', unsafe_allow_html=True)
+    st.markdown('<div class="evo-subtitle">Evaluate Verify Optimize</div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-    # ── Supabase ──────────────────────────────────────────────────────────────
+    # Supabase 
     st.markdown('<div class="sidebar-section-label">⬡ Supabase</div>', unsafe_allow_html=True)
     st.session_state.supabase_url   = st.text_input("PROJECT URL", value=st.session_state.supabase_url, type="default", placeholder="https://xyz.supabase.co")
     st.session_state.supabase_key   = st.text_input("ANON KEY",    value=st.session_state.supabase_key,   type="password", placeholder="eyJ...")
@@ -510,7 +518,6 @@ with st.sidebar:
         if st.button("TEST", key="test_sb"):
             st.session_state.supabase_status = "testing"
             try:
-                from supabase import create_client
                 c = create_client(st.session_state.supabase_url, st.session_state.supabase_key)
                 c.table(st.session_state.supabase_table).select("id").limit(1).execute()
                 st.session_state.supabase_status = "ok"
@@ -528,7 +535,7 @@ with st.sidebar:
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-    # ── OpenAI ────────────────────────────────────────────────────────────────
+    # OpenAI 
     st.markdown('<div class="sidebar-section-label">⬡ OpenAI Model</div>', unsafe_allow_html=True)
     st.session_state.openai_key   = st.text_input("API KEY",  value=st.session_state.openai_key, type="password", placeholder="sk-...")
     st.session_state.openai_model = st.selectbox("MODEL", ["gpt-4o-mini","gpt-4o","gpt-4-turbo","gpt-3.5-turbo"],
@@ -556,7 +563,7 @@ with st.sidebar:
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-    # ── Confident AI ──────────────────────────────────────────────────────────
+    # Confident AI 
     st.markdown('<div class="sidebar-section-label">⬡ Confident AI</div>', unsafe_allow_html=True)
     st.session_state.confident_key = st.text_input("API KEY", value=st.session_state.confident_key, type="password", placeholder="conf-...")
     col_ca, _ = st.columns([1, 1])
@@ -581,7 +588,7 @@ with st.sidebar:
 
     st.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 
-    # ── n8n Webhook ───────────────────────────────────────────────────────────
+    # n8n Webhook 
     st.markdown('<div class="sidebar-section-label">⬡ n8n RAG Webhook</div>', unsafe_allow_html=True)
     st.session_state.webhook_url = st.text_input("WEBHOOK URL", value=st.session_state.webhook_url, placeholder="https://…/webhook/…")
     col_wh, _ = st.columns([1, 1])
@@ -608,7 +615,7 @@ with st.sidebar:
     )
 
 
-# ── Main area ────────────────────────────────────────────────────────────────
+#Main area 
 st.markdown('<div class="page-title">LLM Evaluation Suite</div>', unsafe_allow_html=True)
 
 tab_upload, tab_eval, tab_results, tab_logs = st.tabs([
@@ -618,10 +625,7 @@ tab_upload, tab_eval, tab_results, tab_logs = st.tabs([
     "  CONSOLE",
 ])
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — UPLOAD DOCUMENTS
-# ══════════════════════════════════════════════════════════════════════════════
+# Tab 1: Upload documents
 with tab_upload:
     st.markdown('<div class="evo-card"><div class="evo-card-title">Document Ingestion</div>', unsafe_allow_html=True)
     st.markdown("Upload documents to be chunked and stored in Supabase for evaluation.")
@@ -737,9 +741,9 @@ with tab_upload:
             st.success(f"Uploaded and chunked {len(uploaded)} file(s) into Supabase.")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — RUN EVALUATION
-# ══════════════════════════════════════════════════════════════════════════════
+
+# Tab 2: Run evaluation
+
 METRIC_OPTS = {
     "Answer Relevancy":      {"cls": "AnswerRelevancyMetric",      "threshold": 0.4},
     "Faithfulness":          {"cls": "FaithfulnessMetric",         "threshold": 0.4},
@@ -803,28 +807,16 @@ with tab_eval:
         st.session_state.logs = []
         st.rerun()
 
-    # ── Evaluation runner ─────────────────────────────────────────────────────
+    #Evaluation runner 
     if st.session_state.running:
         add_log("Starting evaluation pipeline…", "info")
         progress_bar = st.progress(0)
         status_area = st.empty()
 
         try:
-            import openai as _oa
-            import deepeval
-            from supabase import create_client as _sc
-            from deepeval.synthesizer import Synthesizer
-            from deepeval.test_case import LLMTestCase
-            from deepeval.dataset import EvaluationDataset
-            from deepeval.metrics import (
-                AnswerRelevancyMetric, FaithfulnessMetric, HallucinationMetric,
-                ContextualRelevancyMetric, BiasMetric, ToxicityMetric,
-                ContextualPrecisionMetric, ContextualRecallMetric
-            )
-            from deepeval.evaluate import evaluate as de_evaluate
-            from deepeval.models import DeepEvalBaseLLM
+            
 
-            # ── inline OpenAI model ──
+            #Inline openai model
             class _OAModel(DeepEvalBaseLLM):
                 def __init__(self):
                     self.model_name = st.session_state.openai_model
@@ -848,7 +840,7 @@ with tab_eval:
 
             oai_model = _OAModel()
 
-            # ── login confident ──
+            #login to confident
             if cloud_push and st.session_state.confident_key:
                 try:
                     deepeval.login(st.session_state.confident_key)
@@ -856,7 +848,7 @@ with tab_eval:
                 except Exception as ce:
                     add_log(f"Confident AI login failed: {ce}", "warn")
 
-            # ── supabase reader ──
+            #supabase reader
             sb = _sc(st.session_state.supabase_url, st.session_state.supabase_key)
             status_area.info("Scanning Supabase for documents…")
 
@@ -874,7 +866,7 @@ with tab_eval:
 
             add_log(f"Found {len(documents)} document(s): {', '.join(documents)}", "info")
 
-            # ── metric builder ──
+            #metric builder
             METRIC_MAP = {
                 "Answer Relevancy":     lambda m: AnswerRelevancyMetric(model=m, threshold=0.4, include_reason=True),
                 "Faithfulness":         lambda m: FaithfulnessMetric(model=m, threshold=0.4, include_reason=True),
@@ -887,7 +879,7 @@ with tab_eval:
             }
             metrics_list = [METRIC_MAP[n](oai_model) for n in selected_metrics if n in METRIC_MAP]
 
-            # ── n8n rag fn ──
+            # n8n rag 
             def call_rag(question: str) -> str:
                 try:
                     time.sleep(1)
@@ -999,9 +991,7 @@ with tab_eval:
         st.success(" Evaluation complete — see the **RESULTS** tab.")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — RESULTS
-# ══════════════════════════════════════════════════════════════════════════════
+# Tab 3: Results
 with tab_results:
     if not st.session_state.eval_results and not st.session_state.goldens:
         st.markdown(
@@ -1044,7 +1034,7 @@ with tab_results:
         # Q&A pairs
         if st.session_state.goldens:
             st.markdown("---")
-            st.markdown("### 🔍 Generated Q&A Test Cases")
+            st.markdown("### Generated Q&A Test Cases")
             docs_available = list(set(g["doc"] for g in st.session_state.goldens))
             filter_doc = st.selectbox("Filter by document", ["All"] + docs_available)
 
@@ -1068,9 +1058,8 @@ with tab_results:
             )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — CONSOLE LOGS
-# ══════════════════════════════════════════════════════════════════════════════
+
+# Tab 4: Console log
 with tab_logs:
     col_refresh, col_clear, _ = st.columns([1, 1, 5])
     with col_refresh:
