@@ -1,4 +1,4 @@
-# ⚡ E.V.O — LLM Evaluator
+# E.V.O — LLM Evaluator
 
 > **Evaluate · Validate · Optimize**
 > A Streamlit-based RAG evaluation platform powered by DeepEval, Supabase, and OpenAI.
