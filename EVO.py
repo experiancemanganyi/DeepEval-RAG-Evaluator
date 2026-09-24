@@ -340,6 +340,14 @@ def init_session_state():
 
 init_session_state()
 
+# Reusable local checkpoints supplement the existing session-based RAG UI.
+def save_rag_checkpoint(label):
+    try:
+        from evo_platform.rag_bridge import save_snapshot
+        save_snapshot(label, st.session_state.goldens, st.session_state.eval_results)
+    except Exception:
+        st.warning('The RAG operation completed but its local SQL checkpoint could not be saved.')
+
 # HELPER FUNCTIONS
 def add_log(message, kind="info"):
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -553,7 +561,7 @@ with st.sidebar:
     st.markdown("### Navigation")
     selected_page = st.radio(
         "Navigation",
-        ["Home", "Upload Documents", "Generate Goldens", "Modify Goldens", "Run Evaluation", "Results", "Console"],
+        ["Home", "Upload Documents", "Generate Goldens", "Modify Goldens", "Run Evaluation", "Results", "Console", "AI Dashboard", "AI Application Testing", "Web Application Connections", "Reference & Chunk Management", "AI Datasets", "AI Test Execution", "AI Evaluation Results"],
         label_visibility="collapsed"
     )
     st.session_state.page = selected_page
@@ -652,9 +660,28 @@ METRICS_CONFIG = {
     "Toxicity": {"threshold": 0.5},
 }
 
+# Universal testing pages are mounted alongside the existing RAG pages.
+from evo_platform.ui import PAGES as AI_PAGES, render as render_ai_page
+if st.session_state.page in AI_PAGES:
+    render_ai_page(st.session_state.page)
+    st.stop()
+
 # HOME PAGE
 if st.session_state.page == "Home":
     st.markdown('<div class="page-title">LLM Evaluation Suite</div>', unsafe_allow_html=True)
+    with st.expander('Restore a saved RAG dataset or evaluation'):
+        from evo_platform.store import Store
+        checkpoints = Store().rows('SELECT * FROM rag_snapshots ORDER BY rowid DESC')
+        if checkpoints:
+            selected_checkpoint = st.selectbox('Checkpoint', range(len(checkpoints)), format_func=lambda i: checkpoints[i]['created_at'] + ' · ' + checkpoints[i]['label'])
+            if st.button('Restore RAG checkpoint'):
+                checkpoint = checkpoints[selected_checkpoint]
+                st.session_state.goldens = json.loads(checkpoint['goldens'])
+                st.session_state.eval_results = json.loads(checkpoint['metrics'])
+                st.session_state.raw_goldens = [Golden(input=g['question'], expected_output=g.get('expected'), context=g.get('context') or []) for g in st.session_state.goldens]
+                st.success('Saved RAG data restored.')
+        else:
+            st.caption('Local checkpoints appear after golden generation or evaluation.')
     st.markdown('<div class="page-tagline">Professional RAG evaluation platform with DeepEval</div>', unsafe_allow_html=True)
     
     st.markdown("""
@@ -786,6 +813,11 @@ elif st.session_state.page == "Upload Documents":
                         
                         try:
                             result = sb_client.table(st.session_state.supabase_table).insert(data).execute()
+                            try:
+                                from evo_platform.store import Store
+                                Store().save_document_chunk(data['text'], data['metadata'])
+                            except Exception:
+                                add_log('Supabase upload succeeded; local chunk mirror failed', 'warn')
                             total_chunks_uploaded += 1
                             success_count += 1
                             add_log(f"Inserted chunk {chunk_idx + 1}/{len(chunks)} for {file.name}", "ok")
@@ -942,6 +974,7 @@ elif st.session_state.page == "Generate Goldens":
                     st.markdown('<span class="error-badge">GENERATION FAILED</span>', unsafe_allow_html=True)
                 
                 add_log(f"Total goldens generated: {len(st.session_state.goldens)}", "ok")
+                save_rag_checkpoint('Generated goldens')
                 
                 if auto_push and st.session_state.confident_key and st.session_state.raw_goldens:
                     push_goldens_to_confident_ai(st.session_state.raw_goldens, st.session_state.dataset_alias)
@@ -985,6 +1018,7 @@ elif st.session_state.page == "Modify Goldens":
                             st.session_state.raw_goldens[original_idx].expected_output = new_expected
                         
                         add_log(f"Modified golden: {new_question[:50]}...", "ok")
+                        save_rag_checkpoint('Reviewed goldens')
                         st.success("Golden updated")
                         st.rerun()
                 
@@ -1154,18 +1188,11 @@ elif st.session_state.page == "Run Evaluation":
 
             evaluation_result = evaluate(test_cases=test_cases, metrics=metrics_list)
 
-            doc_scores = {}
-            for tc in test_cases:
-                if hasattr(tc, "metrics_metadata") and tc.metrics_metadata:
-                    for metric_name, metric_data in tc.metrics_metadata.items():
-                        clean_name = metric_name.replace("Metric", "")
-                        if clean_name not in doc_scores:
-                            doc_scores[clean_name] = []
-                        score = metric_data.get("score") if isinstance(metric_data, dict) else getattr(metric_data, "score", None)
-                        if score is not None:
-                            doc_scores[clean_name].append(score)
+            from evo_platform.rag_bridge import metric_scores
+            doc_scores = metric_scores(evaluation_result, test_cases)
 
             st.session_state.eval_results = doc_scores
+            save_rag_checkpoint('RAG evaluation')
             st.session_state.running = False
             st.session_state.run_complete = True
             st.session_state.evaluation_success = True

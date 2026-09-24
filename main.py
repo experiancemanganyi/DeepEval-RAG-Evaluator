@@ -129,7 +129,7 @@ def run_evaluation_only():
                 data = response.json()
                 
                 if isinstance(data, dict) and data.get("code") == 404:
-                    print(f"\nWebhook expired! Go to n8n and click 'Execute Workflow' again")
+                    print(f"\nWebhook expired! Go to RAG and click 'Execute Workflow' again")
                     input("Press Enter after reactivating...")
                     return call_n8n_rag(question)
                 

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E.V.O — AI testing workspace</title>
+  <meta name="description" content="Evaluate, validate, and optimize AI applications in one local workspace.">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body class="signed-out">
+  <section id="sign-in" class="sign-in"><form id="login-form" class="login-card"><h1>E.V.O</h1><h2>Sign in to your workspace</h2><p>Enter your name and surname so your changes can be recorded.</p><div class="field"><label for="login-name">Name</label><input class="control" id="login-name" name="name" required maxlength="80" autocomplete="given-name"></div><div class="field section-gap"><label for="login-surname">Surname</label><input class="control" id="login-surname" name="surname" required maxlength="80" autocomplete="family-name"></div><p class="subtle">Name-only sign-in records the identity you provide; it does not verify ownership of that name.</p><button class="button primary" type="submit">Sign in</button></form></section>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><span class="brand-mark"><svg width="25" height="25" viewBox="0 0 25 25" fill="none" aria-hidden="true"><path d="M5 6h15M5 12.5h11M5 19h15" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg></span><span class="brand-name">E.V.O<small>AI TESTING WORKSPACE</small></span></a>
+    <div class="workspace-chip"><span class="workspace-avatar">W</span><div>My workspace<small>Local environment</small></div><span class="dot"></span></div>
+    <div class="nav-label">WORKSPACE</div>
+    <nav id="navigation" aria-label="Main navigation"></nav>
+    <div class="sidebar-bottom"><div class="side-note"><span class="status-ring"></span><div>Built for reliable AI<small>Evaluate · Validate · Optimize</small></div></div><a href="#settings" class="settings-link">Workspace settings <span>↗</span></a></div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-right"><span id="connection-status" class="environment"><span class="dot"></span>Local workspace</span><button class="icon-button" data-action="refresh" aria-label="Refresh workspace">↻</button><span id="user-display" class="user-display"></span><button class="button" data-action="logout">Sign out</button></div></header>
+    <main id="content" tabindex="-1"><div class="loading"><span class="spinner"></span>Opening your workspace…</div></main>
+    <footer class="page-footer"><span>E.V.O / Universal AI testing</span><span>Local SQL storage · DeepEval evaluation engine</span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal"><div id="modal-content"></div></dialog>
+</body>
+</html>

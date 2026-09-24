@@ -11,6 +11,8 @@ from supabase import create_client
 load_dotenv()
 class DocumentProcessor:
     def __init__(self, chunk_size=1000, chunk_overlap=200):
+        if chunk_size <= 0 or not 0 <= chunk_overlap < chunk_size:
+            raise ValueError('chunk_size must be positive and overlap must be smaller than chunk_size')
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         
@@ -33,7 +35,7 @@ class DocumentProcessor:
         with open(file_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
             for page_num, page in enumerate(pdf_reader.pages):
-                text += f"\n[Page {page_num + 1}]\n" + page.extract_text()
+                text += f"\n[Page {page_num + 1}]\n" + (page.extract_text() or '')
         return text
     
     def _read_docx(self, file_path):
@@ -90,6 +92,12 @@ class SupabaseChunkLoader:
                     'metadata': chunk['metadata']
                 }
                 self.client.table(self.table_name).insert(data).execute()
+                # Local SQL mirror supplements the existing Supabase storage.
+                try:
+                    from evo_platform.store import Store
+                    Store().save_document_chunk(data['text'], data['metadata'])
+                except Exception:
+                    print('Warning: Supabase upload succeeded but local chunk mirror failed')
             
             print(f" Inserted {len(chunks)} chunks into Supabase")
             return True
