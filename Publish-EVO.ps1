@@ -5,6 +5,7 @@ param(
     [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
+
 Set-Location -LiteralPath $PSScriptRoot
 function Find-ProjectGit {
     if ($GitPath) {
