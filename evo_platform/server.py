@@ -103,10 +103,14 @@ def create_app(database_path=None):
             env['CONFIDENT_API_KEY'] = settings['confident_key']
         workers[run_id] = subprocess.Popen([sys.executable, '-m', 'evo_platform.runner', '--db', store.path, '--run', run_id], cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-    def job(kind, action):
+    def job(kind, action, document_id=None):
         job_id = uid()
         actor = current_user.get()
-        store.execute('INSERT INTO jobs(id,kind,initiated_by) VALUES(?,?,?)', (job_id, kind, actor['id'] if actor else None))
+        with store.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if document_id and not db.execute("SELECT 1 FROM chunks WHERE document_id=? AND kind='document' AND active=1", (document_id,)).fetchone():
+                raise ValueError('This document has been removed; upload it again before generation')
+            db.execute('INSERT INTO jobs(id,kind,initiated_by,document_id) VALUES(?,?,?,?)', (job_id, kind, actor['id'] if actor else None, document_id))
         def progress(fraction, message):
             store.execute('UPDATE jobs SET progress=?,message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (fraction, message, job_id))
         def work():
@@ -285,7 +289,7 @@ def create_app(database_path=None):
 
     @app.get('/api/dashboard')
     def dashboard():
-        results = store.rows('SELECT x.* FROM results x JOIN runs r ON r.id=x.run_id WHERE r.deleted_at IS NULL')
+        results = store.rows('SELECT x.* FROM results x JOIN runs r ON r.id=x.run_id JOIN applications a ON a.id=r.application_id WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL')
         quality, score_checks = [], []
         for result in results:
             for name, metric in json.loads(result['metrics'] or '{}').items():
@@ -293,7 +297,7 @@ def create_app(database_path=None):
                     quality.append(metric.get('quality_score', metric['score']))
                     if name == 'Score accuracy':
                         score_checks.append(metric['score'])
-        return {'technologies': store.rows('SELECT COUNT(*) n FROM technologies')[0]['n'], 'questions': store.rows('SELECT COUNT(*) n FROM questions')[0]['n'], 'tested_questions': len({json.loads(r['snapshot'])['question_id'] for r in results if r['actual']}), 'pending': sum(r['state'] == 'pending' for r in results), 'failed': sum(r['state'] == 'failed' for r in results), 'errors': sum(r['state'] in ('execution_error', 'evaluation_error', 'needs_review') for r in results), 'average_quality': sum(quality) / len(quality) if quality else None, 'candidate_score_accuracy': sum(score_checks) / len(score_checks) if score_checks else None, 'runs': store.rows('SELECT r.*,a.name application FROM runs r JOIN applications a ON a.id=r.application_id WHERE r.deleted_at IS NULL ORDER BY r.rowid DESC LIMIT 20'), 'technologies_breakdown': store.rows('SELECT t.name,a.name application,COUNT(q.id) questions FROM technologies t JOIN applications a ON a.id=t.application_id LEFT JOIN questions q ON q.technology_id=t.id GROUP BY t.id'), 'states': store.rows('SELECT state,COUNT(*) count FROM results GROUP BY state')}
+        return {'technologies': store.rows('SELECT COUNT(*) n FROM technologies t JOIN applications a ON a.id=t.application_id WHERE a.deleted_at IS NULL')[0]['n'], 'questions': store.rows('SELECT COUNT(*) n FROM questions q JOIN technologies t ON t.id=q.technology_id JOIN applications a ON a.id=t.application_id WHERE a.deleted_at IS NULL')[0]['n'], 'tested_questions': len({json.loads(r['snapshot'])['question_id'] for r in results if r['actual']}), 'pending': sum(r['state'] == 'pending' for r in results), 'failed': sum(r['state'] == 'failed' for r in results), 'errors': sum(r['state'] in ('execution_error', 'evaluation_error', 'needs_review') for r in results), 'average_quality': sum(quality) / len(quality) if quality else None, 'candidate_score_accuracy': sum(score_checks) / len(score_checks) if score_checks else None, 'runs': store.rows('SELECT r.*,a.name application FROM runs r JOIN applications a ON a.id=r.application_id WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL ORDER BY r.rowid DESC LIMIT 20'), 'technologies_breakdown': store.rows('SELECT t.name,a.name application,COUNT(q.id) questions FROM technologies t JOIN applications a ON a.id=t.application_id LEFT JOIN questions q ON q.technology_id=t.id WHERE a.deleted_at IS NULL GROUP BY t.id'), 'states': store.rows('SELECT x.state,COUNT(*) count FROM results x JOIN runs r ON r.id=x.run_id JOIN applications a ON a.id=r.application_id WHERE r.deleted_at IS NULL AND a.deleted_at IS NULL GROUP BY x.state')}
 
     @app.post('/api/connections')
     def save_connection(body: dict):
@@ -495,6 +499,8 @@ def create_app(database_path=None):
     def chunks(kind: str = 'structured', app_id: str = ''):
         sql = 'SELECT c.*,q.text question,t.name technology FROM chunks c LEFT JOIN questions q ON q.id=c.question_id LEFT JOIN technologies t ON t.id=q.technology_id WHERE c.kind=?'
         params = [kind]
+        if kind == 'document':
+            sql += ' AND c.active=1'
         if app_id and kind == 'structured':
             sql += ' AND t.application_id=?'
             params.append(app_id)
@@ -706,7 +712,31 @@ def create_app(database_path=None):
 
     @app.get('/api/jobs')
     def jobs():
-        return [{**r, 'result': json.loads(r['result']) if r['result'] else None} for r in store.rows('SELECT * FROM jobs ORDER BY rowid DESC LIMIT 20')]
+        return [{**r, 'result': json.loads(r['result']) if r['result'] else None} for r in store.rows('SELECT * FROM jobs WHERE dismissed_at IS NULL ORDER BY rowid DESC LIMIT 20')]
+
+    @app.delete('/api/jobs')
+    def clear_finished_jobs():
+        count = store.execute("UPDATE jobs SET dismissed_at=CURRENT_TIMESTAMP WHERE dismissed_at IS NULL AND state IN ('completed','failed')")
+        return {'removed': count}
+
+    @app.delete('/api/jobs/{job_id}')
+    def dismiss_job(job_id: str):
+        one('SELECT id FROM jobs WHERE id=? AND dismissed_at IS NULL', (job_id,))
+        count = store.execute("UPDATE jobs SET dismissed_at=CURRENT_TIMESTAMP WHERE id=? AND dismissed_at IS NULL AND state IN ('completed','failed')", (job_id,))
+        if not count:
+            raise HTTPException(409, 'Wait for this process to finish before removing it')
+        return {'ok': True}
+
+    @app.delete('/api/rag/documents/{document_id}')
+    def remove_document(document_id: str):
+        with store.connection() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("SELECT 1 FROM chunks WHERE document_id=? AND kind='document' AND active=1", (document_id,)).fetchone():
+                raise HTTPException(404, 'Document not found')
+            if db.execute("SELECT 1 FROM jobs WHERE document_id=? AND state NOT IN ('completed','failed')", (document_id,)).fetchone():
+                raise HTTPException(409, 'This document is being used by a process. Wait for it to finish.')
+            db.execute("UPDATE chunks SET active=0 WHERE document_id=? AND kind='document'", (document_id,))
+        return {'ok': True, 'message': 'Document removed from local use. Existing evaluation snapshots are retained.'}
 
     @app.get('/api/settings')
     def get_settings():
@@ -775,7 +805,7 @@ def create_app(database_path=None):
             snapshot_id = uid()
             store.execute('INSERT INTO rag_snapshots(id,label,goldens,metrics) VALUES(?,?,?,?)', (snapshot_id, name + ' · generated goldens', encode(rows), '{}'))
             return {'id': snapshot_id, 'goldens': len(rows)}
-        return job('RAG golden synthesis', action)
+        return job('RAG golden synthesis', action, document_id=document_id)
 
     @app.post('/api/rag/snapshots/{snapshot_id}')
     def edit_rag_snapshot(snapshot_id: str, body: dict):

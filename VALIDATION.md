@@ -80,3 +80,7 @@ Then test one or two live cases using a dedicated test account after connection 
 ## User management and bulk review update — 2026-09-24
 
 `pytest -m 'not browser' -q`: 75 passed, 1 browser test deselected. JavaScript syntax check passed using Node. Tests cover normalized identity reuse, user editing/removal/restoration and session revocation, completed-run and application removal with retained snapshots, bulk reference/case proposal and approval, partial failures and concurrent human edits. Proposal providers were mocked; this update did not make paid provider calls or upload real data to Confident AI. Live browser interaction was not verified. Restart the local server to activate the updated routes and migration.
+
+## Document/process cleanup and Overview filtering
+Non-browser suite: 78 passed, 1 browser test deselected. JavaScript syntax and whitespace checks passed. Tests verify document removal/re-upload, busy-document protection, persistent dismissal of terminal jobs, and exclusion of all removed-application contributions from Overview while preserving historical results. Live browser interaction was not tested for this update.
+

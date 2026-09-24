@@ -42,3 +42,12 @@ Proposals help prepare reference data; evaluation of connected tools still uses 
 Removal hides items from working lists while retaining database history, audit records and existing result snapshots. It does not delete reports already uploaded to Confident AI. Reconnecting an application with the exact same name reuses its existing local application record.
 
 These changes affect the local E.V.O project only. The AI Interview server code was not changed.
+
+
+## Uploaded documents and process cards
+- In **RAG testing → Documents**, click **Remove** beside an unused document and confirm. It disappears from the document list and document reference library. Documents currently used for golden generation cannot be removed until the job finishes.
+- Removal deactivates local chunks and preserves saved evaluation snapshots. Existing Supabase copies are not deleted. Uploading the same document again makes its chunks available again without duplicating identical chunks.
+- At the bottom of a page, use **Remove** on a completed or failed process card, or **Clear completed & failed processes** to dismiss all finished cards. This does not delete the datasets/results produced by those jobs. Queued, running and sign-in processes cannot be dismissed this way.
+- Removed applications are excluded from every **Overview** count, score, chart, technology breakdown and recent-run entry. Historical records remain available outside Overview.
+
+Restart E.V.O with `./Start-EVO.ps1` and refresh your browser to load these controls and the database migration. Run `./Publish-EVO.ps1` again when ready to publish these additional changes; the earlier successful push did not contain them.

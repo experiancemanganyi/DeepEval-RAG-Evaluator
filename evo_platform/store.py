@@ -185,7 +185,7 @@ class Store:
         document_id = str(metadata.get('file_id') or metadata.get('file_title') or 'unknown')
         content = encode({'text': text, 'metadata': metadata})
         digest = hashlib.sha256((document_id + content).encode()).hexdigest()
-        self.execute('INSERT OR IGNORE INTO chunks(id,document_id,kind,content,source,version) VALUES(?,?,?,?,?,1)', (digest, document_id, 'document', content, source))
+        self.execute('INSERT INTO chunks(id,document_id,kind,content,source,version) VALUES(?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET active=1', (digest, document_id, 'document', content, source))
 
     def create_dataset(self, app_id, name, cases, source='import'):
         dataset_id = uid()

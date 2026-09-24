@@ -29,7 +29,7 @@ def test_migration_preserves_data(setup):
     store, app, q = setup
     again = Store(store.path)
     assert len(again.questions(app)) == 2
-    assert len(again.rows('SELECT * FROM schema_migrations')) == 6
+    assert len(again.rows('SELECT * FROM schema_migrations')) == 7
     with pytest.raises(sqlite3.IntegrityError):
         again.execute('INSERT INTO technologies(id,application_id,external_id,name) VALUES(?,?,?,?)', ('x', 'missing', 'x', 'x'))
 
